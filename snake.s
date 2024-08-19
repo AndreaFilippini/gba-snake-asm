@@ -13,20 +13,47 @@
 	.equ TOTAL_TILE,	0x4
 	.equ DISPLAY_WIDTH,	240
 	.equ DISPLAY_HEIGHT,	160
+	.equ MAX_LENGTH,	0x02010000
+	.equ SNAKE_LENGTH,	0x02010004
+	.equ SNAKE_DIR_X,	0x02010008
+	.equ SNAKE_DIR_Y,	0x0201000C
+	.equ SNAKE_LOC_X,	0x02010010
+	.equ SNAKE_LOC_Y,	0x02010014
 	.equ APPLE_LOC_X,	0x02020000
 	.equ APPLE_LOC_Y,	0x02020004
+	.equ GAME_SPEED,	0x02020008
+	.equ SPEED_VALUE,	0x100
 
 main:
 	push {r0, lr}
+	bl .random
 	bl .enable_bg
 	bl .load_pal
 	bl .load_all_tile
 	bl .render_walls
-	bl .random_seed
+	bl .set_snake_prop
 	bl .spawn_apple
 .loop:
 	@ ;;;;;;;;;;;;;;MAIN GAME;;;;;;;;;;;;;;;
+	bl .vid_sync
+	bl .wait_timer
+	bl .snake_render
+	bl .snake_update
 	b .loop
+
+@ // VBlank timing
+.vid_sync:
+	push {r0-r1, lr}
+	ldr r0, .VCOUNT
+	.vid_sync_loop:
+		ldrh r1, [r0]
+		cmp r1, #160
+		bge .vid_sync_loop
+	.vid_sync_loop_2:
+		ldrh r1, [r0]
+		cmp r1, #160
+		blt .vid_sync_loop_2
+	pop {r0-r1, pc}
 
 @ // enable BG0 and set its properties
 .enable_bg:
@@ -42,6 +69,7 @@ main:
 .text
 .align	2
 	.DISPCNT: 	.word REG_BASE + 0x0
+	.VCOUNT: 	.word REG_BASE + 0x6
 	.BG0CNT: 	.word REG_BASE + 0x8
 
 @ // load color palette for snake walls and apple
@@ -129,7 +157,7 @@ main:
 	push {r0-r2, lr}
 	mov r0, #0
 	mov r1, #0
-	mov r2, #3
+	mov r2, #1
 	.render_walls_loop:
 		cmp r1, #0
 		beq .put_tile
@@ -151,56 +179,45 @@ main:
 			bne .render_walls_loop
 	pop {r0-r2, pc}
 
-@ // generate random values
-.random_seed:
-	push {r0, lr}
+@ // generate random values	
+.random:
+	push {r1-r2}
 	ldr r0, .RANDOM_VAL
 	ldr r1, [r0]
 	ldr r2, .SEED
-	add r1, r1, r2
+	mul r1, r2
+	ldr r2, = 0x1073
+	add r1, r2
 	str r1, [r0]
-	pop {r0, pc}
-
-@ // get 16bit random value
-.get_random_16:
-	push {lr}
-	ldr r0, .RANDOM_VAL
-	ldrh r0, [r0]
-	pop {r1}
-	bx r1
-
-@ // get 8bit random value
-.get_random_8:
-	push {lr}
-	ldr r0, .RANDOM_VAL
-	ldrb r0, [r0]
-	pop {r1}
-	bx r1
+	lsr r0, r1, #16
+	pop {r1-r2}
+	bx lr
 
 .text
 .align	2
 	.RANDOM_VAL: 	.word RANDOM
-	.SEED:		.word 0xF52AFC39
+	.SEED:		.word 0x41C64E61
 
 @ // spawn apple tile
 .spawn_apple:
 	push {r0-r3, lr}
-	ldr r0, .APPLE_X
-	ldr r1, .APPLE_Y
-	mov r2, #0
-	bl .render_tile
-
-	bl .get_random_8
+	bl .random
 	mov r1, #((DISPLAY_WIDTH / 8) - 2)
 	bl __aeabi_uidivmod
-	add r1, r1, #1
+	add r0, r1, #1
+
 	push {r0}
-	bl .get_random_8
+	bl .random
 	mov r1, #((DISPLAY_HEIGHT / 8) - 2)
 	bl __aeabi_uidivmod
-	mov r1, r0
 	add r1, r1, #1
 	pop {r0}
+
+	ldr r2, .APPLE_X
+	ldr r3, .APPLE_Y
+	str r0, [r2]
+	str r1, [r3]
+
 	mov r2, #2
 	bl .render_tile
 	pop {r0-r3, pc}
@@ -209,3 +226,86 @@ main:
 .align	2
 	.APPLE_X: 	.word APPLE_LOC_X
 	.APPLE_Y:	.word APPLE_LOC_Y
+
+@ // wait for the timer before updating the frame
+.wait_timer:
+	push {r0-r2, lr}
+	ldr r1, = SPEED_VALUE
+	.speed_loop:
+		sub r1, r1, #1
+		cmp r1, #0
+		bne .speed_loop
+	pop {r0-r2, pc}
+
+@ // update snake position
+.snake_update:
+	push {r0-r6, lr}
+	ldr r0, .SNAKE_X
+	ldr r1, .DIR_X
+	ldr r2, [r0]
+	ldr r3, [r1]
+	add r2, r2, r3
+	str r2, [r0]
+
+	ldr r0, .SNAKE_Y
+	ldr r1, .DIR_Y
+	ldr r2, [r0]
+	ldr r3, [r1]
+	add r2, r2, r3
+	str r2, [r0]
+
+	pop {r0-r6, pc}
+
+@ // show snake on screen
+.snake_render:
+	push {r0-r6, lr}
+	ldr r5, .SNAKE_X
+	ldr r6, .SNAKE_Y
+	mov r2, #3
+	ldr r3, .SNAKE_LEN
+	ldr r3, [r3]
+	mov r4, #0
+	.snake_render_loop:
+		ldr r0, [r5]
+		ldr r1, [r6]
+		bl .render_tile
+		add r5, r5, #8
+		add r6, r6, #8
+		add r4, r4, #1
+		cmp r4, r3
+		bne .snake_render_loop
+	pop {r0-r6, pc}
+
+@ // set initial snake properties
+.set_snake_prop:
+	push {r0-r3, lr}
+	mov r0, #((DISPLAY_WIDTH / 8) / 2)
+	mov r1, #((DISPLAY_HEIGHT / 8) / 2)
+	ldr r2, .SNAKE_X
+	ldr r3, .SNAKE_Y
+	str r0, [r2]
+	str r1, [r3]
+	ldr r2, .SNAKE_LEN
+	mov r0, #1
+	str r0, [r2]
+	ldr r2, .MAX_LEN
+	mov r0, #5
+	str r0, [r2]
+
+	ldr r0, .DIR_X
+	mov r1, #1
+	str r1, [r0]
+	ldr r0, .DIR_Y
+	mov r1, #0
+	str r1, [r0]
+	pop {r0-r3, pc}
+
+.text
+.align	2
+	.SNAKE_X: 	.word SNAKE_LOC_X
+	.SNAKE_Y:	.word SNAKE_LOC_Y
+	.MAX_LEN:	.word MAX_LENGTH
+	.SNAKE_LEN:	.word SNAKE_LENGTH
+	.DIR_X:		.word SNAKE_DIR_X
+	.DIR_Y:		.word SNAKE_DIR_Y
+	.SPEED:		.word GAME_SPEED
