@@ -36,67 +36,67 @@
 main:
 	push {r0-r1, lr}
 .reset:	
-	bl .random
-	bl .enable_bg
-	bl .load_pal
-	bl .load_all_tile
-	bl .set_snake_prop
-	bl .spawn_apple
+	bl .random			@ set random seed
+	bl .enable_bg			@ enable screen visualization
+	bl .load_pal			@ load palette
+	bl .load_all_tile		@ load tile of snake, walls and apple
+	bl .set_snake_prop		@ set initial values for snake
+	bl .spawn_apple			@ spawn apple at random location
 .loop:
 	@ ;;;;;;;;;;;;;;MAIN GAME;;;;;;;;;;;;;;;
-	bl .vid_sync
-	bl .key_pressed
-	bl .incr_timer
-	ldr r1, = SPEED_VALUE
-	cmp r0, r1
-	ble .loop
+	bl .vid_sync			@ synchronization before loading screen elements
+	bl .key_pressed			@ process input
+	bl .incr_timer			@ increment timer for game speed
+	ldr r1, = SPEED_VALUE		@ load speed of the game
+	cmp r0, r1			@ compare speed with internal timer
+	ble .loop			@ continue waiting cycle until the timer reaches the value of the game speed
 
-	bl .reset_timer
-	bl .check_eat
-	cmp r0, #0
-	beq .loop_render
+	bl .reset_timer			@ reset internal timer to zero
+	bl .check_eat			@ check if the snake eat the apple
+	cmp r0, #0			@ if the return value is zero, it means the snake didn't eat the apple
+	beq .loop_render		@ continue with the rendering of the screen elements
 
-	bl .add_snake_block
-	bl .spawn_apple
+	bl .add_snake_block		@ otherwise, increase the length of the snake
+	bl .spawn_apple			@ generates a new apple
 
 	.loop_render:
-	bl .clean_buffer
-	bl .render_apple
-	bl .snake_render
-	bl .snake_update
-	bl .render_walls
-	bl .render_screen
-	bl .reset_processed_input
+	bl .clean_buffer		@ clean screen buffer
+	bl .render_apple		@ render apple to screen
+	bl .snake_render		@ render snake to screen
+	bl .snake_update		@ update snake position
+	bl .render_walls		@ render walls to screen
+	bl .render_screen		@ render all elements to screen
+	bl .reset_processed_input	@ reset internal flag to receive new inputs
 
-	ldr r0, .SNAKE_X
-	ldr r1, .SNAKE_Y
-	ldr r0, [r0]
-	ldr r1, [r1]
-	bl .get_tile_index
-	cmp r0, #1
-	beq .end_game
-	bl .snake_eat_itself
-	cmp r0, #1
-	beq .end_game
-	b .loop
+	ldr r0, .SNAKE_X		@ pointer to x location of the snake's head
+	ldr r1, .SNAKE_Y		@ pointer to y location of the snake's head
+	ldr r0, [r0]			@ x location of the snake's head
+	ldr r1, [r1]			@ y location of the snake's head
+	bl .get_tile_index		@ get tile index at snake's head location
+	cmp r0, #1			@ if it's a wall
+	beq .end_game			@ the game ends
+	bl .snake_eat_itself		@ check if the snake ate itself
+	cmp r0, #1			@ if the return value is 1, it means that the snake has eaten a part of itself
+	beq .end_game			@ so the game ends
+	b .loop				@ otherwise, continue the game
 
 .end_game:
-	bl .clean_snake_blocks
-	b .reset
+	bl .clean_snake_blocks		@ clean snake old data from previous game
+	b .reset			@ return to reset part to start a new game
 	pop {r0-r1, pc}
 
 @ // VBlank timing
 .vid_sync:
 	push {r0-r1, lr}
-	ldr r0, .VCOUNT
+	ldr r0, .VCOUNT			@ internal counter for synchronisation with screen display
 	.vid_sync_loop:
-		ldrh r1, [r0]
-		cmp r1, #160
-		bge .vid_sync_loop
-	.vid_sync_loop_2:
-		ldrh r1, [r0]
-		cmp r1, #160
-		blt .vid_sync_loop_2
+		ldrh r1, [r0]		@ get the counter value
+		cmp r1, #160		@ compare it with the value 160
+		bge .vid_sync_loop      @ if it is greater, it means that the synchronisation cycle is over
+	.vid_sync_loop_2:		@ i need to wait for the next one
+		ldrh r1, [r0]		@ get the counter value
+		cmp r1, #160		@ compare it with the value 160
+		blt .vid_sync_loop_2	@ wait for the next synchronisation cycle while the counter value is less than 160
 	pop {r0-r1, pc}
 
 @ // enable BG0 and set its properties
